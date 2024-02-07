@@ -1,4 +1,4 @@
-# ReindeerTranscriptome
+# Long shank neonates
 
 ### Principal Investigator: Colton Unger (Campbell Rolian)
 ### Institution: Faculty of Veterinary Medicine, University of Calgary
@@ -13,7 +13,7 @@ All scripts mentioned here and not included in full are stored in this repo.
 
 ## Description of Project
 
-
+The long bones of the postcranial skeleton develop by the highly conserved process of endochondral ossification (EO), where bones elongate by the action of structurally similar growth plates situated on the ends of the bones. The shared process of EO raises the possibility that long bones may evolve together when a strong selection pressure is applied to change a specific bone, in a process called correlated evolution. We investigated the potential for correlated skeletal change using the Longshanks mouse (LS), which has been selectively bred to have 15-20% longer tibiae compared to Controls and found that all the postcranial bones elongated in response to tibia evolution. To investigate the developmental basis of these correlated changes, we applied next generation sequencing (NGS) on developing LS and Control bones to attempt to identify altered EO pathways in multiple LS bones.
 
 ## Bioinformatics
 
@@ -23,53 +23,27 @@ An overview of the bioinformatics pipeline is presented hereafter:
 
 ### Description of datasets
 
+Three mice genotypes, Control, LS1 and LS2, were used for processing with this bioinformatics pipeline. LS1 and LS2 exhibits longer tibiae. Initial PCA plots identified a single control animal as an apparent outlier and was eliminated from analysis. 
+
+![PCA all samples](longShank_PCA_plot.png "PCA all samples")
+
+
 The main directory of the project in ARC is:
-'/work/vetmed_data/jj/projects/jeffBiernaski/reindeer/transcriptome_assembly/'
+'/work/vetmed_data/jj/projects/coltonUnger/LongshanksNeonateLim'
 
-1. Jeff Biernaskie data: 35 single-end (150 bp) RNAseq libraries from antlers and back tissue, described in (https://pubmed.ncbi.nlm.nih.gov/36493752/).
-2. Julien Prunier data: 1 paired-end (150 bp) RNAseq libraries from organ tissues.
-3. Juha Kantanen data: 46 paired-end (75 bp) RNAseq libraries from 3 adipose tissues of a male.
-
-### Preliminary assemblies
-
-Three well-reputated assembly software were tested to assemble each of the transcriptomes:
-
-#### Trinity
-Model: The Bruijn graph-based
-Desirable features: Downstream processing and annotation tools
-Developers: Team of Aviv Regev and Brian Hass (MIT)
-Reference: Nat. Protoc. 8, 1494-1512. (2013)
-
-#### RNAspades
-Model: The Bruijn graph and graph-based 
-Desirable features: Very successful assemblers for genome and metagenome assembly
-Developers: Team of Andrey D Prjibelski (Center for Algorithmic Biotechnology)
-Reference: Gigascience 8:9, giz100 (2019)
-
-#### Transabyss
-Model: The Bruijn graph and graph-based
-Desirable features: Laval group had good experience with it. 
-Developers: Team of Inanc Birol (BC Cancer Research Institute)
-(Inanc Birol) Nat. Methods 7, 909-912. (2010).
-
-Assemblies were conducted separately, for each data set, and are stored in the following subdirectories:
-
-jeffData <br>
-juhaData <br>
-julienData <br>
 
 ##### Quality trimming
 
 ```bash
-# For Jeff data:
-fastq-mcf ~/useful_files/adapters.fa -o rangifer_tarandus_RNAseq_jeff_trim30.fq rangifer_tarandus_RNAseq_jeff.fastq -k 0 -l 50  -w 3 -q 30
-
-# For Juha data:
-fastq-mcf ~/useful_files/adapters.fa -o rangifer_tarandus_RNAseq_juha_trim35_R1.fq -o rangifer_tarandus_RNAseq_juha_trim35_R2.fq rangifer_tarandus_RNAseq_juha_R1.fq  rangifer_tarandus_RNAseq_juha_R2.fq -k 0 -l 50  -w 3 -q 35
-
-# For Julien data:
-fastq-mcf ~/useful_files/adapters.fa -o rangifer_tarandus_RNAseq_julien_trim30_R1.fq -o rangifer_tarandus_RNAseq_julien_trim30_R2.fq rangifer_tarandus_RNAseq_julien_R1.fq  rangifer_tarandus_RNAseq_julien_R2.fq -k 0 -l 50  -w 3 -q 30
+for FILE in *_R1.fq.gz
+do
+    fastq-mcf ~/useful_files/adapters.fa -o ${FILE/_R1.fq.gz/}R1_trimmed.fq -o ${FILE/_R1.fq.gz/}R2_trimmed.fq $FILE ${FILE/_R1/_R2} -k 0 -l 50  -w 3 -q 20
+done
 ```
+
+The number of reads in each library, before and after trimming is recorded in file `number_of_reads.xlsx`.
+
+
 
 ##### Assembly
 
