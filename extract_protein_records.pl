@@ -12,9 +12,9 @@ my %ids;
 open my $ID_FILE, '<', $ids_list or die "Can't open $ids_list: $!";
 while (my $long_id = <$ID_FILE>) {
     chomp $long_id;
-    my ($id, @rest) = split(' ', $long_id);
+    my ($id, @temp) = split(' ', $long_id);
     $id =~ s/>//;
-    $ids{$id} = join('', @rest);
+    $ids{$id} = join('', @temp);
 }
 close $ID_FILE;
 
@@ -29,7 +29,7 @@ while (my $seq = $seq_in->next_seq) {
     my $target_id = $seq->id;
     my $desc = $seq->desc || '';
     if (exists($ids{$target_id})) {
-            print ">", $target_id, " ", $ids{$target_id}, " ", "\n", $seq->seq, "\n";
+      print ">", $target_id, " ", $ids{$target_id}, " ", "\n", $seq->seq, "\n";
     }
 }
 

@@ -21,7 +21,7 @@ An overview of the bioinformatics pipeline is presented hereafter:
 
 ![Bioinformatics workflow](RNAseq.png "Bioinformatics workflow")
 
-### Description of datasets
+### 1. Description of datasets
 
 Three mice genotypes, Control, LS1 and LS2, were used for processing with this bioinformatics pipeline. LS1 and LS2 exhibits longer tibiae. Initial PCA plots identified a single control animal as an apparent outlier and was eliminated from analysis. 
 
@@ -32,7 +32,7 @@ The main directory of the project in ARC is:
 '/work/vetmed_data/jj/projects/coltonUnger/LongshanksNeonateLim'
 
 
-##### Quality trimming
+#### 2. Quality trimming
 
 ```bash
 for FILE in *_R1.fq.gz
@@ -41,128 +41,113 @@ do
 done
 ```
 
-The number of reads in each library, before and after trimming is recorded in file `number_of_reads.xlsx`.
+The number of reads in each library, before and after trimming is recorded in file `number_of_reads_per_sample.xlsx`. Number of reads per sample after trimming ranged between 22.4 and 65.7 million reads with a mean of 47 million reads.
 
+#### 3. Quantification with Kallisto
 
-
-##### Assembly
+##### 3.1 Indexing the transcriptome
 
 ```bash
-# RNAspades
 
-rnaspades.py -t 48  -s rangifer_tarandus_RNAseq_jeff_trim30.fq -o Rt_jeff_rnaspades_assembly
+kallisto index -i Mus_musculus.GRCm39.cdna.all.idx Mus_musculus.GRCm39.cdna.all.fa
 
-declare -a infiles=("rangifer_tarandus_RNAseq_juha_trim35_R1.fq" "rangifer_tarandus_RNAseq_julien_trim30_R1.fq")
+``` 
 
-for file in "${infiles[@]}"
+##### 3.2 Quantification of transcripts with kallisto
+
+``` bash
+
+INDEX=/work/vetmed_data/jj/projects/coltonUnger/LongshanksNeonateLim/mm_GRCm39_plusNovel.idx
+
+for FILE in *_R1.fq.gz
 do
-    rnaspades.py -t 48 -1 "$file" -2 "${file/_R1/_R2}" -o "$(basename "$file" _R1.fq)"_rnaspades_assembly
+        kallisto quant -i $INDEX --bias -b 100 -o ${FILE/_R1.fq.gz/}_kallisto --threads 12 $FILE ${FILE/_R1/_R2}
 done
-
-
-# TransAbyss
-
-transabyss --threads 48 --se rangifer_tarandus_RNAseq_jeff_trim30.fq
-
-transabyss --threads 48  --pe rangifer_tarandus_RNAseq_juha_trim35_R1.fq rangifer_tarandus_RNAseq_juha_trim35_R2.fq
-
-transabyss --threads 48  --pe rangifer_tarandus_RNAseq_julien_trim30_R1.fq rangifer_tarandus_RNAseq_julien_trim30_R2.fq
-
-# Trinity
-
-Trinity --seqType fq  --single rangifer_tarandus_RNAseq_jeff_trim30.fq --CPU 48 --max_memory 256G --trimmomatic --output Rt_jeff_trinity_assembly
-
-declare -a infiles=("rangifer_tarandus_RNAseq_juha_trim35_R1.fq" "rangifer_tarandus_RNAseq_julien_trim30_R1.fq")
-
-for file in "${infiles[@]}"
-do
-    rnaspades.py -t 48 -1 "$file" -2 "${file/_R1/_R2}" -o "$(basename "$file" _R1.fq)"_rnaspades_assembly
-
-    Trinity --seqType fq --left "$file" --right "${file/_R1/_R2}" --CPU 48 --max_memory 256G --trimmomatic --output "$(basename "$file" _R1.fq)"_trinity_assembly
-done
-
 ```
+
+##### 3.3 Parse kallisto results
+
+```bash
+
+for DIR in *_third-kallisto
+do
+        cut -f 1 ${DIR}/abundance.tsv > names
+        cut -f 4 ${DIR}/abundance.tsv | sed 1d | sed '1s/^/'$DIR'\n/' | sed 's/_kallisto//' > ${DIR}.counts
+        cut -f 5 ${DIR}/abundance.tsv | sed 1d | sed '1s/^/'$DIR'\n/' | sed 's/_kallisto//' > ${DIR}.tpms
+done
+echo "Counts and tpms have been extracted"
+
+COUNTS_FILE='all_samples_counts.tsv'
+TPMS_FILE='all_samples_tpms.tsv'
+
+
+# Paste all counts columns after names
+paste names *counts > $COUNTS_FILE
+# Paste all tpms columns after names
+paste names *tpms > $TPMS_FILE
+echo "All samples were pasted in a single file"
+
+rm names *counts *tpms
+echo "Intermediate files were deleted"
+
+echo "Your consolidated counts are at: $COUNTS_FILE" 
+echo "Your consolidated tpms are at: $TPMS_FILE
+```
+
+#### 4. Differential expression analysis
+
+Differential expression analyses was conducted with DESeq2, using script `DESeq2.R`. It requires the counts file `all_samples_counts.tsv` and the metadata file 'metadata.tsv', both of which can be downloaded from this repo.
+
+#### 5. Gene ontology analysis
+
+Gene ontology analysis was conducted on the results from the previous step and was conducted with script `clusterProfiler.R` and requires the same input files as script `DESeq2.R`.
+
+
+#### 6. Assembly
+
+For assembly, all files corresponding to end1 (R1) and end2 (R2) were concatenated into two files: `longshanksNeonateLim_R1.fq` and `longshanksNeonateLim_R2.fq`. The assember `rnaSPAdes` was used with the following command line:
+
+```bash
+rnaspades.py -t 12  -1 longshanksNeonateLim_R1.fq  -2 longshanksNeonateLim_R2.fq -o longshanksNeonateLim_RNAspades_assembly
+```
+
+This resulted in 67,858 contigs.
+
 
 #### Evaluation of assembly
 
+Assembly was evaluated using Quality Assessment Tool for Genome Assemblies (QUAST) and Benchmarking Universal Single-Copy Orthologs (BUSCO).
+
 ```bash
 # QUAST
+quast.py transabyss_2.0.1_assembly/transabyss-final.fa -o "Rt_${name}_transabyss_quast" --fast
 
-declare -a names=("jeff" "juha" "julien")
-
-for name in "${names[@]}"
-do
-    quast.py transabyss_2.0.1_assembly/transabyss-final.fa -o "Rt_${name}_transabyss_quast" --fast
-done
 
 # BUSCO
-declare -a NAMES=("jeff" "juha" "julien")
-# A directory with symbolic links was created
 DIR="/work/vetmed_data/jj/projects/jeffBiernaski/reindeer/transcriptome_assembly/simb_links/"
-LINNEAGE="${DIR}/cetartiodactyla_odb10"
+LINNEAGE="${DIR}/mammalia_odb10"
+INFILE="longShank_RNAspades_assembly.fa"
+OUTDIR="longShank_RNAspades_assembly_busco"
 
-for NAME in "${NAMES[@]}"
-do
-    busco -i "${DIR}/${NAME}_transabyss-final.fa" -l "$LINNEAGE" -o "Rt_${NAME}_transabyss_busco" -m transcriptome -c 48
-done
+busco -ii "$INFILE"  -l "$LINNEAGE" -o "$OUTDIR" -m transcriptome -c 48
 
 ```
 
 Here a summary of assembly results:
 
-![Assembly results](summaryAssemblies.png "Assembly results")
+QUAST
+
+![QUAST results](quast_stats.png "QUAST results")
+
+BUSCO
+
+![BUSCO results](BUSCO_stats.png "BUSCO results")
 
 
-From the statistics presented above, it is clear that RNAspades and Trinity performed better on all datasets. We had the additional complication that each set of libraries are different: paired-end or single-end, different length and different depth.
 
-We could not make any of the aligners work with a simultaneously using single-end and paired-end reads. Since Jeff's data is single-end, we decided to go with single-end data for all datasets and try to downsize each dataset to the size of the smallest one.
-
-### Single-end assembly
-
-Data in ARC:
-
-'/work/vetmed_data/jj/projects/jeffBiernaski/reindeer/transcriptome_assembly/all_sequences_together'
-
-In order to improve quality of assembly, we trimmed data using a Q threshold of 40.
 
 ```bash
-# Jeff data:
-fastq-mcf /home/juan.jovel/useful_files/adapters.fa jeff_raw_data_all_trim35.fq -o jeff_raw_data_all_trim40.fq  -l 75 -q 40
-
-# Juha data:
-fastq-mcf /home/juan.jovel/useful_files/adapters.fa juha_raw_data_all_1_trim35.fq juha_raw_data_all_2_trim35.fq -o juha_raw_data_all_1_trim40.fq -o juha_raw_data_all_2_trim40.fq  -l 50 -q 40
-
-# Julien data:
-fastq-mcf /home/juan.jovel/useful_files/adapters.fa julien_raw_data_all_1_trim35.fq julien_raw_data_all_2_trim35.fq -o julien_raw_data_all_1_trim40.fq -o julien_raw_data_all_2_trim40.fq  -l 100 -q 40
-```
-
-For paired-end data, end1 and end2 were merged as follows:
-
-```bash
-declare -a INFILES=("julien_raw_data_all_1_trim40.fq" "juha_raw_data_all_1_trim40.fq")
-
-for FILE in "${INFILES[@]}"
-do
-    bbmerge-auto.sh in1="$FILE" in2="${FILE/_1/_2}" out="${FILE/_1*/}_merged_trim40.fq" adapters=/home/juan.jovel/useful_files/adapters.fa
-done
-```
-
-After rezising files we ended up withthe following files:
-
-52G  jeff_raw_data_all_trim40_150M.fq
-58G  juha_raw_data_all_merged_trim40_250M.fq
-54G  julien_raw_data_all_merged_trim40.fq
-
-Initially, assembly was attempted with RNAspades, but it finished without any error but also without reporting any assembly. We then moved to attempt the assembly with Trinity as follows:
-
-```bash
-Trinity --seqType fq --single jeff_raw_data_all_trim40_150M.fq,juha_raw_data_all_merged_trim40_250M.fq,julien_raw_data_all_merged_trim40.fq --CPU 48 --max_memory 250G --trimmomatic --output 60Gb_Rt_all_trinity_single_assembly
-```
-
-Trinity was able to assemble 898,563 longer than 200 bp (file `Trinity.fasta`). We then applied TransDecoder to initially scan for long open reading frames. `TransDecoder.LongOrfs` was run with the following command:
-
-```bash
-    TransDecoder.LongOrfs -t transcripts.fasta
+    TransDecoder.LongOrfs -t longShank_RNAspades_assembly.fa
 ```
 
 This tool works by scanning transcript sequences for ORFs that are long enough to be potential protein-coding regions. It typically looks for standard start and stop codons and uses the length of the ORF as one of the criteria for predicting coding regions.
@@ -170,21 +155,21 @@ This tool works by scanning transcript sequences for ORFs that are long enough t
 In a second step, we applied the sister program `TransDecoder.Predict`. TransDecoder.Predict is designed to analyze the ORFs identified by TransDecoder.LongOrfs (or other methods) and determine which of these are most likely to represent actual protein-coding regions.  TransDecoder.Predict searches for the presence of known protein domains.
 
 ```bash
-   TransDecoder.Predict -t transcripts.fasta  
+   TransDecoder.Predict -t longShank_RNAspades_assembly.fa  
 ```
 
-TransDecoder.Predict implicitly relies on the intermediate files generated by TransDecoder.LongOrfs. It uses these files to analyze the ORFs and predict which ones are likely to be true protein-coding regions. By default, it looks at directory `Trinity.fasta.transdecoder_dir` in the same directory where TransDecoder.LongOrfs was run and uses the intermediate files generated by this latter one to predict putative coding ORFs.
+TransDecoder.Predict implicitly relies on the intermediate files generated by TransDecoder.LongOrfs. It uses these files to analyze the ORFs and predict which ones are likely to be true protein-coding regions. By default, it looks at directory `longShank_RNAspades_assembly.fa.transdecoder_dir` in the same directory where TransDecoder.LongOrfs was run and uses the intermediate files generated by this latter one to predict putative coding ORFs.
 
-This resulted in 152,529 predicted proteins, which are stored in files `Trinity.fasta.transdecoder.cds` and `Trinity.fasta.transdecoder.pep` containing, respectively, DNA and protein predicted sequences.
+This resulted in 29,536 predicted proteins, which are stored in files `longShank_RNAspades_assembly.fa.transdecoder.cds` and `longShank_RNAspades_assembly.fa.transdecoder.pep` containing, respectively, DNA and protein predicted sequences.
 
-From those, only complete ORFs were extracted (5' and 3' moeities were excluded). This produced 80,034 putatively novel transcripts, and they are stored in file `Trinity.fasta.transdecoder_complete.cds` and `Trinity.fasta.transdecoder_complete.pep`.
+From those, only complete ORFs were extracted (5' and 3' moeities were excluded). This produced 19,574 putatively novel transcripts, and they are stored in file `longShank_RNAspades_assembly.fa.transdecoder_complete.fasta` and `longShank_RNAspades_assembly.fa.transdecoder_complete.pep`.
 
 Complete ORfs were extracted with the following commands:
 
 ```bash
-    perl extract_complete_ORFs.pl Trinity.fasta.transdecoder.cds > Trinity.fasta.transdecoder_complete.cds
+    perl extract_complete_ORFs.pl longShank_RNAspades_assembly.fa.transdecoder.cds > longShank_RNAspades_assembly.fa.transdecoder_complete.fasta
 
-    perl extract_complete_ORFs.pl Trinity.fasta.transdecoder.pep > Trinity.fasta.transdecoder_complete.pep
+    perl extract_complete_ORFs.pl longShank_RNAspades_assembly.fa.transdecoder.pep > longShank_RNAspades_assembly.fa.transdecoder_complete.pep
 
 ```
 
@@ -209,31 +194,31 @@ Trinotate --db reindeer_transc.db --create --trinotate_data_dir trinotate_db
 Then, sqlite database was initialized by importing nucleotide and protein sequences.
 
 ```bash
-Trinotate --db reindeer_transc.db \
+Trinotate --db longshank_transc.db \
         --init \
-        --gene_trans_map "Trinity.fasta.transdecoder_complete.cds.gene-map.txt" \
-        --transcript_fasta "Trinity.fasta.transdecoder_complete.cds" \
-        --transdecoder_pep "Trinity.fasta.transdecoder_complete.pep"
+        --gene_trans_map "longShank_putative_novel_transcripts_shortID_gene-map.txt" \
+        --transcript_fasta "longShank_RNAspades_assembly.fa.transdecoder_complete.fasta" \
+        --transdecoder_pep "longShank_RNAspades_assembly.fa.transdecoder_complete.pep"
 ```
 
  The gene-map file was created with the following command:
 
 ```bash
 # generation of a gene-map file
-awk '{ if ($0 ~ /^>/) { id=substr($0,2); print id "\t" id } }'  Trinity.fasta.transdecoder_complete.cds > Trinity.fasta.transdecoder_complete.cds.gene-map.txt
+awk '{ if ($0 ~ /^>/) { id=substr($0,2); print id "\t" id } }'  longShank_RNAspades_assembly.fa.transdecoder_complete.fasta > longShank_putative_novel_transcripts_shortID_gene-map.txt
 
 ```
 
 Trinotate was run:
 
 ```bash
-DB_PATH="reindeer_transc.db"
+DB_PATH="longshank_transc.db"
 
 Trinotate --db ${DB_PATH} \
 --run ALL \
 --CPU 12 \
---transcript_fasta "Trinity.fasta.transdecoder_complete.cds" \
---transdecoder_pep "Trinity.fasta.transdecoder_complete.pe"
+--transcript_fasta "longShank_RNAspades_assembly.fa.transdecoder_complete.fasta" \
+--transdecoder_pep "longShank_RNAspades_assembly.fa.transdecoder_complete.pep"
 
 Trinotate --db ${DB_PATH} --LOAD_swissprot_blastp uniprot_sprot.ncbi.blastp.outfmt6
 Trinotate --db ${DB_PATH} --LOAD_pfam TrinotatePFAM.out
@@ -247,36 +232,36 @@ Trinotate --db ${DB_PATH} --LOAD_infernal infernal.out
 And results were extracted into a tabular report:
 
 ```bash
-    Trinotate --db  reindeer_transc.db --report > reindeer_transc_Trinotate_report.tsv
+    Trinotate --db  longshank_transc.db --report > longshank_transc_Trinotate_report.tsv
 ```
 
 Reads for which Trinotate found annotations can be extracted with the following command line:
 
 ```bash
-    cut -f 1 Trinity.fasta.transdecoder_complete.cds | sed 's/>//' | grep - reindeer_transc_Trinotate_report.tsv | cut -f 1,3 | awk '$2 != "."' > Trinity.fasta.transdecoder_complete_trinotate_annotations.txt
+    cut -f 1 longShank_RNAspades_assembly.fa.transdecoder_complete.fasta | sed 's/>//' | grep - longshank_transc_Trinotate_report | cut -f 1,3 | awk '$2 != "."' >  ``longShank_RNAspades_assembly.fa.transdecoder_complete_trinotate_annotations.txt`
 ```
 
-Out of 80,034 reads subjected to annotation in file `Trinity.fasta.transdecoder_complete.cds`, 43,694 got annotations and those annotations were saved in file `Trinity.fasta.transdecoder_complete_annotations.txt`.  
+Out of XXXX reads subjected to annotation in file `longShank_RNAspades_assembly.fa.transdecoder_complete.fasta`, XXXX got annotations and those annotations were saved in file `longShank_RNAspades_assembly.fa.transdecoder_complete_trinotate_annotations.txt`.  
 
 Unique protein IDs were extracted from the Trinotate report with the following command:
 
 ```bash
-cut -f 3 Trinity.fasta.transdecoder_complete_annotations.txt | cut -d '^' -f 1 | sed '/^\.$/d' | sort | uniq > unique_reindeer_protein_ids_list.txt
+cut -f 3 longShank_RNAspades_assembly.fa.transdecoder_complete_trinotate_annotations.txt | cut -d '^' -f 1 | sed '/^\.$/d' | sort | uniq > unique_longshank_protein_ids_list.txt 
 ```
 
 Annotation for such proteins were retrieved from the Uniprot database:
 
 ```bash
-python retrieve_protein_annotations_uniprot.py unique_reindeer_protein_ids_list.txt > reindeer_assembly_annotations_uniprot.tsv 
+python retrieve_protein_annotations_uniprot.py unique_reindeer_protein_ids_list.txt > protein_ids_annotated_uniprot.txt 
 ```
 
 The following files were used for annotation the ID of files:
 
-reindeer_assembly_annotations_uniprot.tsv
-Trinity.fasta.transdecoder_complete_annotations.txt
+longshank_assembly_annotations_uniprot.tsv
+ongShank_RNAspades_assembly.fa.transdecoder_complete_trinotate_annotations.txt
 node_and_prot_ids.txt
-Trinity.fasta.transdecoder_complete.cds
-Trinity.fasta.transdecoder_complete.pep
+longShank_RNAspades_assembly.fa.transdecoder_complete.fasta
+longShank_RNAspades_assembly.fa.transdecoder_complete.pep
 
 using script `annotate_fasta_id.pl`. The results were stored in the following files:
 
@@ -284,16 +269,14 @@ trinotate_report_table.tsv
 trinotate_report_table.xlsx 
 (a table with annotations for each transcript that could be annotated)
 
-Trinity.fasta.transdecoder_complete_with_annotation.fasta
+longShank_RNAspades_assembly.fa.transdecoder_complete_with_annotation.fasta
 (All nuleotide reads that could be annotated)
 
-Trinity.fasta.transdecoder_complete_with_annotation.faa
+longShank_RNAspades_assembly.fa.transdecoder_complete_with_annotation.faa
 (All protein reads that could be annotated)
 
-Annotated sequences were aligned agains the `Bos_taurus.ARS-UCD1.2.cdna.all.fa` transcriptome and transcripts that did not aligned that reference were labelled as novel transcripts. Those are stored in file: `Trinity.fasta.transdecoder_complete_with_annotation_novel.fasta`.
+Annotated sequences were aligned agains the `Mus_musculus.GRCm39.cdna.all.fa` transcriptome and transcripts that did not aligned that reference were labelled as novel transcripts. Those are stored in file: `longShank_putative_novel_transcripts.fasta`.
 
-However, it is important to notice that even when those transcripts aligned to the cow transcriptome with some similarity and significant e-value it does noe mean that the could not align with higher similarity to the reindeer actual transcriptome.
- 
 
 
 
